@@ -181,11 +181,13 @@
 #ifdef _MSC_VER
 typedef unsigned char  stbir_uint8;
 typedef unsigned short stbir_uint16;
+typedef short		   stbir_int16;
 typedef unsigned int   stbir_uint32;
 #else
 #include <stdint.h>
 typedef uint8_t  stbir_uint8;
 typedef uint16_t stbir_uint16;
+typedef int16_t  stbir_int16;
 typedef uint32_t stbir_uint32;
 #endif
 
@@ -336,7 +338,7 @@ typedef enum
     STBIR_TYPE_UINT16,
     STBIR_TYPE_UINT32,
     STBIR_TYPE_FLOAT ,
-
+	STBIR_TYPE_INT16,
     STBIR_MAX_TYPES
 } stbir_datatype;
 
@@ -461,6 +463,7 @@ static unsigned char stbir__type_size[] = {
     2, // STBIR_TYPE_UINT16
     4, // STBIR_TYPE_UINT32
     4, // STBIR_TYPE_FLOAT
+	2, // STBIR_TYPE_INT16
 };
 
 // Kernel function centered at 0
@@ -591,6 +594,17 @@ static stbir__inline stbir_uint16 stbir__saturate16(int x)
         return 0;
 
     return 65535;
+}
+
+static stbir__inline stbir_int16 stbir__saturate16_signed(int x)
+{
+    if ( x >= -32768 || x <= 32767)
+        return x;
+
+    if (x < -32768)
+        return -32768;
+
+    return 32767;
 }
 #endif
 
@@ -1271,7 +1285,7 @@ static void stbir__decode_scanline(stbir__info* stbir_info, int n)
                 decode_buffer[decode_pixel_index + c] = ((float)((const unsigned char*)input_data)[input_pixel_index + c]) / 255;
         }
         break;
-
+	
     case STBIR__DECODE(STBIR_TYPE_UINT8, STBIR_COLORSPACE_SRGB):
         for (; x < max_x; x++)
         {
@@ -1294,6 +1308,15 @@ static void stbir__decode_scanline(stbir__info* stbir_info, int n)
                 decode_buffer[decode_pixel_index + c] = ((float)((const unsigned short*)input_data)[input_pixel_index + c]) / 65535;
         }
         break;
+	case STBIR__DECODE(STBIR_TYPE_INT16, STBIR_COLORSPACE_LINEAR):
+		for (; x < max_x; x++)
+        {
+            int decode_pixel_index = x * channels;
+            int input_pixel_index = stbir__edge_wrap(edge_horizontal, x, input_w) * channels;
+            for (c = 0; c < channels; c++)
+                decode_buffer[decode_pixel_index + c] = ((float)((const short*)input_data)[input_pixel_index + c]) / 32767;
+        }
+		break;
 
     case STBIR__DECODE(STBIR_TYPE_UINT16, STBIR_COLORSPACE_SRGB):
         for (; x < max_x; x++)
@@ -1719,13 +1742,16 @@ static void stbir__encode_scanline(stbir__info* stbir_info, int num_pixels, void
 
     #define STBIR__ROUND_INT(f)    ((int)          ((f)+0.5))
     #define STBIR__ROUND_UINT(f)   ((stbir_uint32) ((f)+0.5))
+	#define STBIR__ROUND_INT_SIGNED(f) ( (int)     ( f >= 0 ? f+0.5 : f-0.5) )
 
     #ifdef STBIR__SATURATE_INT
     #define STBIR__ENCODE_LINEAR8(f)   stbir__saturate8 (STBIR__ROUND_INT((f) * 255  ))
     #define STBIR__ENCODE_LINEAR16(f)  stbir__saturate16(STBIR__ROUND_INT((f) * 65535))
+	#define STBIR__ENCODE_LINEAR16_SIGNED(f)  stbir__saturate16_signed(STBIR__ROUND_INT_SIGNED((f) * 32767))
     #else
     #define STBIR__ENCODE_LINEAR8(f)   (unsigned char ) STBIR__ROUND_INT(stbir__saturate(f) * 255  )
     #define STBIR__ENCODE_LINEAR16(f)  (unsigned short) STBIR__ROUND_INT(stbir__saturate(f) * 65535)
+	#define STBIR__ENCODE_LINEAR16_SIGNED(f)  (short) STBIR__ROUND_INT(stbir__saturate(f) * 32767)
     #endif
 
     switch (decode)
@@ -1768,6 +1794,18 @@ static void stbir__encode_scanline(stbir__info* stbir_info, int num_pixels, void
                 {
                     int index = pixel_index + n;
                     ((unsigned short*)output_buffer)[index] = STBIR__ENCODE_LINEAR16(encode_buffer[index]);
+                }
+            }
+            break;
+		case STBIR__DECODE(STBIR_TYPE_INT16, STBIR_COLORSPACE_LINEAR):
+            for (x=0; x < num_pixels; ++x)
+            {
+                int pixel_index = x*channels;
+
+                for (n = 0; n < channels; n++)
+                {
+                    int index = pixel_index + n;
+                    ((short*)output_buffer)[index] = STBIR__ENCODE_LINEAR16_SIGNED(encode_buffer[index]);
                 }
             }
             break;
